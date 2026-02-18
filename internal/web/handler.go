@@ -1,0 +1,76 @@
+package web
+
+import (
+	"TicTacToe/internal/domain/service"
+	"encoding/json"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+)
+
+type Handler struct{
+	service service.DomainInterface
+}
+
+func NewHandler(service service.DomainInterface) *Handler {
+	return &Handler{service: service}
+}
+
+func (h *Handler) StartGame(w http.ResponseWriter, r *http.Request) {
+	game, err := h.service.StartGame()
+	if err != nil {
+		http.Error(w, "could not start game", http.StatusInternalServerError)
+		return
+	}
+
+	response := ToResponse(game)
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func (h *Handler) NextMove(w http.ResponseWriter, r *http.Request) {
+	var dto RequestDTO
+
+	err := json.NewDecoder(r.Body).Decode(&dto)
+	if err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+
+	game := FromRequest(dto)
+	game.ID, err = uuid.Parse(id)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	success := h.service.NextMove(game)
+	if !success {
+		http.Error(w, "invalid move", http.StatusBadRequest)
+		return
+	}
+
+	response := ToResponse(game)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+
+	if game.IsFinished {
+        w.Write([]byte("------------------------------\n"))
+        if game.Winner == 0 {
+            w.Write([]byte("Game over, Draw\n"))
+        } else {
+            winnerSymbol := "Cross"
+            if game.Winner == 2 {
+                winnerSymbol = "Zero"
+            }
+            w.Write([]byte("Game over, Winner: " + winnerSymbol + "\n"))
+        }
+        w.Write([]byte("------------------------------\n"))
+    }
+}
